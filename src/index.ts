@@ -1,5 +1,21 @@
 //必要なパッケージをインポートする
-import { GatewayIntentBits, Client, Partials, Message } from 'discord.js'
+import { GatewayIntentBits, Client, Partials, Message, EmbedBuilder } from 'discord.js'
+
+
+
+const embed = () => {
+    const embed = new EmbedBuilder()
+    .setTitle('東456')
+    for (let i = 0; i < 10; i++) {
+        embed.addFields({
+            name: `Field ${i + 1}`,
+            value: `Value ${i + 1}`,
+        })
+    }
+
+    return embed;
+}
+
 
 
 //Botで使うGatewayIntents、partials
@@ -31,11 +47,10 @@ client.on('messageCreate', async (message: Message) => {
     const now = new Date();
 
     await message.channel.send(
-        now.toLocaleString('ja-JP', {
-            timeZone: 'Asia/Tokyo',
-        }),
+    { embeds: [embed()] }
     );
 });
 
 //ボット作成時のトークンでDiscordと接続
 client.login(process.env.DISCORD_TOKEN)
+
