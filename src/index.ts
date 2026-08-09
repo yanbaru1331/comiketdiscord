@@ -1,26 +1,41 @@
-const requiredEnvironmentVariables = [
-  "DISCORD_TOKEN",
-  "GOOGLE_SHEET_ID",
-] as const;
+//必要なパッケージをインポートする
+import { GatewayIntentBits, Client, Partials, Message } from 'discord.js'
 
-const missing = requiredEnvironmentVariables.filter((name) => !process.env[name]);
 
-if (missing.length > 0) {
-  console.warn(
-    `Skeleton started without external connections. Missing: ${missing.join(", ")}`,
-  );
-} else {
-  console.info("Configuration detected. Discord and Sheets adapters are not implemented yet.");
-}
+//Botで使うGatewayIntents、partials
+const client = new Client({
+  intents: [
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+  ],
+  partials: [Partials.Message, Partials.Channel],
+})
 
-console.info("comiketDiscord skeleton is running.");
+//Botがきちんと起動したか確認
+client.once('ready', () => {
+    console.log('Ready!')
+    if(client.user){
+        console.log(client.user.tag)
+    }
+})
 
-const shutdown = (signal: string): void => {
-  console.info(`Received ${signal}; shutting down.`);
-  process.exit(0);
-};
+//!timeと入力すると現在時刻を返信するように
+client.on('messageCreate', async (message: Message) => {
+    if (message.author.bot) return;
+    if (message.content !== '!time') return;
+    if (!message.channel.isSendable()) return;
 
-process.once("SIGINT", () => shutdown("SIGINT"));
-process.once("SIGTERM", () => shutdown("SIGTERM"));
+    const now = new Date();
 
-setInterval(() => undefined, 60_000);
+    await message.channel.send(
+        now.toLocaleString('ja-JP', {
+            timeZone: 'Asia/Tokyo',
+        }),
+    );
+});
+
+//ボット作成時のトークンでDiscordと接続
+client.login(process.env.DISCORD_TOKEN)

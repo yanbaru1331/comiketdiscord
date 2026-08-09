@@ -4,8 +4,6 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     init: true
-    env_file:
-      - .env
     command: sleep infinity
 
     volumes:
