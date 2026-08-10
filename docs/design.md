@@ -52,6 +52,8 @@ TypeScript Discord Bot（コンテナ）
 - `MessageMappings`: `guildId`, `channelId`, `messageId`, `slot`, `itemId`, `lastRenderedAt`
 - `PurchaseOverrides`: `itemId`, `discordUserId`, `quantity`, `state`, `memo`, `updatedAt`, `updatedBy`
 
+購入候補の入力は `PurchaseCandidateSource` を境界とし、現在はCSVアダプターを使用する。Google Sheetsアダプターは、スプレッドシートIDと `イベント識別子-日数-会場`（例: `C107-2-東`）形式のシート名でタブを取得し、同じ行変換処理へ渡す。各行の `itemId` は日程・配置から生成せず、CSV／シートに保存したランダムな16桁16進数を安定IDとして扱う。
+
 シート名と列は実装前に確定する。安定した `itemId` を行番号とは別に持つ。
 
 ## 4. イベント処理案

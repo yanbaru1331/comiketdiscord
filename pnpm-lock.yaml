@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      csv-parser:
+        specifier: ^3.2.1
+        version: 3.2.1
       discord.js:
         specifier: ^14.27.0
         version: 14.27.0
@@ -233,6 +236,11 @@ packages:
     resolution: {integrity: sha512-Xfe6rpCTxSxfbswi/W/Pz7zp1WWSNn4A0eW4mLkQUewCrXXtMj31lCg+iQyTkh/CkusZSq9eDflu7tjEDXUY6g==}
     engines: {node: '>=v14.0.0', npm: '>=7.0.0'}
 
+  csv-parser@3.2.1:
+    resolution: {integrity: sha512-v8RPMSglouR9od735SnwSxLBbCJqEPSbgm1R5qfr8yIiMUCEFjox56kRZid0SvgHJEkxeIEu3+a9QS3YRh7CuA==}
+    engines: {node: '>= 10'}
+    hasBin: true
+
   discord-api-types@0.38.53:
     resolution: {integrity: sha512-HL1zz/UuZ+bbJjA/X8Kbxx9gk8v9rJAbTeWRNYKmIdjwJ7EovjlHgoJTxcLpATfNJ+AonOtMdy3Y5MVIJAAd/A==}
 
@@ -448,6 +456,8 @@ snapshots:
       '@types/node': 22.20.1
 
   '@vladfrangu/async_event_emitter@2.4.7': {}
+
+  csv-parser@3.2.1: {}
 
   discord-api-types@0.38.53: {}
 

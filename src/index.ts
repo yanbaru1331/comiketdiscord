@@ -1,24 +1,13 @@
-//必要なパッケージをインポートする
-import { GatewayIntentBits, Client, Partials, Message, EmbedBuilder } from 'discord.js'
+import { resolve } from 'node:path';
+import { Client, GatewayIntentBits, Message, Partials } from 'discord.js';
+import { CsvPurchaseCandidateSource } from './input/csv-purchase-candidate-source.js';
+import { buildPurchaseCandidateEmbeds } from './presentation/purchase-candidate-embeds.js';
 
+const purchaseCandidateSource = new CsvPurchaseCandidateSource(
+  resolve(process.cwd(), 'test.csv'),
+);
+const purchaseListTitle = '東456';
 
-
-const embed = () => {
-    const embed = new EmbedBuilder()
-    .setTitle('東456')
-    for (let i = 0; i < 10; i++) {
-        embed.addFields({
-            name: `Field ${i + 1}`,
-            value: `Value ${i + 1}`,
-        })
-    }
-
-    return embed;
-}
-
-
-
-//Botで使うGatewayIntents、partials
 const client = new Client({
   intents: [
     GatewayIntentBits.DirectMessages,
@@ -28,29 +17,24 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
   ],
   partials: [Partials.Message, Partials.Channel],
-})
-
-//Botがきちんと起動したか確認
-client.once('ready', () => {
-    console.log('Ready!')
-    if(client.user){
-        console.log(client.user.tag)
-    }
-})
-
-//!timeと入力すると現在時刻を返信するように
-client.on('messageCreate', async (message: Message) => {
-    if (message.author.bot) return;
-    if (message.content !== '!time') return;
-    if (!message.channel.isSendable()) return;
-
-    const now = new Date();
-
-    await message.channel.send(
-    { embeds: [embed()] }
-    );
 });
 
-//ボット作成時のトークンでDiscordと接続
-client.login(process.env.DISCORD_TOKEN)
+client.once('ready', () => {
+  console.log('Ready!');
+  if (client.user) console.log(client.user.tag);
+});
 
+client.on('messageCreate', async (message: Message) => {
+  if (message.author.bot) return;
+  if (message.content !== '!list') return;
+  if (!message.channel.isSendable()) return;
+
+  const items = await purchaseCandidateSource.load();
+  const embeds = buildPurchaseCandidateEmbeds(items, purchaseListTitle);
+
+  for (const e of embeds) {
+    await message.channel.send({ embeds: [e] });
+  }
+});
+
+client.login(process.env.DISCORD_TOKEN);
