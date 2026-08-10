@@ -3,27 +3,69 @@ import type { PurchaseCandidate } from '../domain/purchase-candidate.js';
 
 const ITEMS_PER_EMBED = 10;
 
-function formatYen(value: number): string {
-  return `${value.toLocaleString('ja-JP')}円`;
+export interface PurchaseExceptionNote {
+  type: string;
+  quantity?: number;
+  memo?: string;
+  updatedBy: string;
 }
 
-function renderProduct(item: PurchaseCandidate): string {
-  const details = [`- ${item.productName}` ];
-  details.push(`${item.unitPrice !== undefined ? formatYen(item.unitPrice) : '価格未設定'}-${item.quantity}冊`);
-  return details.join('\n');
-}
-interface CircleGroup {
+export interface PurchaseCircleGroup {
+  key: string;
   location: string;
   circleName: string;
   items: PurchaseCandidate[];
 }
-function groupByCircle(items: readonly PurchaseCandidate[]): CircleGroup[] {
-  const groups = new Map<string, CircleGroup>();
+
+export interface PurchaseCandidatePage {
+  title: string;
+  pageNumber: number;
+  totalPages: number;
+  circles: PurchaseCircleGroup[];
+}
+
+export interface PurchaseCircleDisplayState {
+  purchaserIds: readonly string[];
+  exceptions: ReadonlyMap<string, PurchaseExceptionNote>;
+}
+
+function formatYen(value: number): string {
+  return `${value.toLocaleString('ja-JP')}円`;
+}
+
+function renderException(note: PurchaseExceptionNote): string {
+  const details = [note.type];
+  if (note.quantity !== undefined) details.push(`数量: ${note.quantity}`);
+  if (note.memo) details.push(note.memo);
+  return `>   備考: ${details.join(' / ')}`;
+}
+
+function renderProduct(
+  item: PurchaseCandidate,
+  productNumber: number | undefined,
+  exception: PurchaseExceptionNote | undefined,
+): string {
+  const label = productNumber === undefined
+    ? item.productName
+    : `${productNumber}. ${item.productName}`;
+  const details = [`> - ${label}`];
+  details.push(
+    `${item.unitPrice !== undefined ? formatYen(item.unitPrice) : '価格未設定'}-${item.quantity}冊`,
+  );
+  if (exception) details.push(renderException(exception));
+  return details.join('\n');
+}
+
+export function groupPurchaseCandidatesByCircle(
+  items: readonly PurchaseCandidate[],
+): PurchaseCircleGroup[] {
+  const groups = new Map<string, PurchaseCircleGroup>();
 
   for (const item of items) {
     const circleName = item.circleName ?? 'サークル名未設定';
     const key = `${item.location}\u0000${circleName}`;
     const group = groups.get(key) ?? {
+      key,
       location: item.location,
       circleName,
       items: [],
@@ -36,11 +78,21 @@ function groupByCircle(items: readonly PurchaseCandidate[]): CircleGroup[] {
   return [...groups.values()];
 }
 
-function renderCircleValue(items: readonly PurchaseCandidate[]): string {
-  const products = items.map(renderProduct);
+function renderCircleValue(
+  circle: PurchaseCircleGroup,
+  state: PurchaseCircleDisplayState | undefined,
+): string {
+  const showProductNumbers = circle.items.length > 1;
+  const products = circle.items.map((item, index) =>
+    renderProduct(
+      item,
+      showProductNumbers ? index + 1 : undefined,
+      state?.exceptions.get(item.id),
+    ),
+  );
   const urls = [
     ...new Set(
-      items
+      circle.items
         .map((item) => item.url)
         .filter((url): url is string => Boolean(url && /^https?:\/\//i.test(url))),
     ),
@@ -48,34 +100,60 @@ function renderCircleValue(items: readonly PurchaseCandidate[]): string {
   const links = urls.map((url, index) =>
     hyperlink(urls.length === 1 ? '詳細を開く' : `詳細を開く (${index + 1})`, url),
   );
+  const purchasers = state?.purchaserIds.length
+    ? [`購入数: ${state.purchaserIds.length}`]
+    : [];
 
-  return [...products, ...links].join('\n');
+  return [...products, ...purchasers, ...links].join('\n');
+}
+
+export function buildPurchaseCandidatePages(
+  items: readonly PurchaseCandidate[],
+  title: string,
+): PurchaseCandidatePage[] {
+  const circles = groupPurchaseCandidatesByCircle(items);
+  const totalPages = Math.ceil(circles.length / ITEMS_PER_EMBED);
+  const pages: PurchaseCandidatePage[] = [];
+
+  for (let offset = 0; offset < circles.length; offset += ITEMS_PER_EMBED) {
+    pages.push({
+      title,
+      pageNumber: offset / ITEMS_PER_EMBED + 1,
+      totalPages,
+      circles: circles.slice(offset, offset + ITEMS_PER_EMBED),
+    });
+  }
+
+  return pages;
+}
+
+export function renderPurchaseCandidatePage(
+  page: PurchaseCandidatePage,
+  states: ReadonlyMap<string, PurchaseCircleDisplayState> = new Map(),
+): EmbedBuilder {
+  const embed = new EmbedBuilder().setTitle(
+    page.totalPages > 1
+      ? `${page.title}（${page.pageNumber}/${page.totalPages}）`
+      : page.title,
+  );
+
+  page.circles.forEach((circle, index) => {
+    const state = states.get(circle.key);
+    const status = state?.purchaserIds.length ? '✅' : '⬜';
+    embed.addFields({
+      name: `${index + 1}. ${circle.location} - ${circle.circleName} ${status}`,
+      value: renderCircleValue(circle, state),
+    });
+  });
+
+  return embed;
 }
 
 export function buildPurchaseCandidateEmbeds(
   items: readonly PurchaseCandidate[],
   title: string,
 ): EmbedBuilder[] {
-  const circles = groupByCircle(items);
-  const embeds: EmbedBuilder[] = [];
-  const totalPages = Math.ceil(circles.length / ITEMS_PER_EMBED);
-
-  for (let offset = 0; offset < circles.length; offset += ITEMS_PER_EMBED) {
-    const page = circles.slice(offset, offset + ITEMS_PER_EMBED);
-    const pageNumber = offset / ITEMS_PER_EMBED + 1;
-    const embed = new EmbedBuilder().setTitle(
-      totalPages > 1 ? `${title}（${pageNumber}/${totalPages}）` : title,
-    );
-
-    page.forEach((circle, index) => {
-      embed.addFields({
-        name: `${offset + index + 1}. ${circle.location} - ${circle.circleName}`,
-        value: renderCircleValue(circle.items),
-      });
-    });
-
-    embeds.push(embed);
-  }
-
-  return embeds;
+  return buildPurchaseCandidatePages(items, title).map((page) =>
+    renderPurchaseCandidatePage(page),
+  );
 }
