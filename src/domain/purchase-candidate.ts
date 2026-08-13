@@ -8,6 +8,7 @@ export interface PurchaseCandidate {
   unitPrice?: number;
   quantity: number;
   totalPrice?: number;
+  requester?: string;
   memo1?: string;
   memo2?: string;
   url?: string;

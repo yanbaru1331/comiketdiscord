@@ -5,7 +5,6 @@ const ITEMS_PER_EMBED = 10;
 
 export interface PurchaseExceptionNote {
   type: string;
-  quantity?: number;
   memo?: string;
   updatedBy: string;
 }
@@ -26,7 +25,7 @@ export interface PurchaseCandidatePage {
 
 export interface PurchaseCircleDisplayState {
   purchaserIds: readonly string[];
-  exceptions: ReadonlyMap<string, PurchaseExceptionNote>;
+  exception?: PurchaseExceptionNote;
 }
 
 function formatYen(value: number): string {
@@ -35,15 +34,13 @@ function formatYen(value: number): string {
 
 function renderException(note: PurchaseExceptionNote): string {
   const details = [note.type];
-  if (note.quantity !== undefined) details.push(`数量: ${note.quantity}`);
   if (note.memo) details.push(note.memo);
-  return `>   備考: ${details.join(' / ')}`;
+  return `備考: ${details.join(' / ')}`;
 }
 
 function renderProduct(
   item: PurchaseCandidate,
   productNumber: number | undefined,
-  exception: PurchaseExceptionNote | undefined,
 ): string {
   const label = productNumber === undefined
     ? item.productName
@@ -52,7 +49,6 @@ function renderProduct(
   details.push(
     `${item.unitPrice !== undefined ? formatYen(item.unitPrice) : '価格未設定'}-${item.quantity}冊`,
   );
-  if (exception) details.push(renderException(exception));
   return details.join('\n');
 }
 
@@ -87,7 +83,6 @@ function renderCircleValue(
     renderProduct(
       item,
       showProductNumbers ? index + 1 : undefined,
-      state?.exceptions.get(item.id),
     ),
   );
   const urls = [
@@ -103,8 +98,9 @@ function renderCircleValue(
   const purchasers = state?.purchaserIds.length
     ? [`購入数: ${state.purchaserIds.length}`]
     : [];
+  const exception = state?.exception ? [renderException(state.exception)] : [];
 
-  return [...products, ...purchasers, ...links].join('\n');
+  return [...products, ...exception, ...purchasers, ...links].join('\n');
 }
 
 export function buildPurchaseCandidatePages(
@@ -139,9 +135,15 @@ export function renderPurchaseCandidatePage(
 
   page.circles.forEach((circle, index) => {
     const state = states.get(circle.key);
-    const status = state?.purchaserIds.length ? '✅' : '⬜';
+    const soldOut = state?.exception?.type === '売り切れ';
+    const status = soldOut
+      ? '❌'
+      : state?.purchaserIds.length
+        ? '✅'
+        : '⬜';
+    const name = `${index + 1}. ${circle.location} - ${circle.circleName}`;
     embed.addFields({
-      name: `${index + 1}. ${circle.location} - ${circle.circleName} ${status}`,
+      name: `${soldOut ? `~~${name}~~` : name} ${status}`,
       value: renderCircleValue(circle, state),
     });
   });

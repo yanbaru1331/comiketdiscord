@@ -1,21 +1,24 @@
-import { resolve } from 'node:path';
 import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
   Client,
   GatewayIntentBits,
+  LabelBuilder,
   Message,
   MessageFlags,
   MessageReaction,
   ModalBuilder,
   Partials,
+  type PartialMessageReaction,
   PartialUser,
+  StringSelectMenuBuilder,
   TextInputBuilder,
   TextInputStyle,
   User,
 } from 'discord.js';
-import { CsvPurchaseCandidateSource } from './input/csv-purchase-candidate-source.js';
+import { GoogleSheetsPurchaseCandidateSource } from './input/google-sheets-purchase-candidate-source.js';
+import { PublicGoogleSheetsValuesReader } from './input/public-google-sheets-values-reader.js';
 import {
   buildPurchaseCandidatePages,
   type PurchaseCandidatePage,
@@ -44,7 +47,7 @@ const exceptionModalPrefix = 'purchase-exception-modal:';
 
 interface MutableCircleState extends PurchaseCircleDisplayState {
   purchaserIds: string[];
-  exceptions: Map<string, PurchaseExceptionNote>;
+  exception?: PurchaseExceptionNote;
 }
 
 interface PublishedListMessage {
@@ -54,10 +57,26 @@ interface PublishedListMessage {
 }
 
 const publishedMessages = new Map<string, PublishedListMessage>();
-const purchaseCandidateSource = new CsvPurchaseCandidateSource(
-  resolve(process.cwd(), 'test.csv'),
-);
-const purchaseListTitle = '東456';
+const defaultSpreadsheetId = '1Nl_CxmDBM_RYGt0x6wFJpupeN0Y1ExGFYwS0AW5GyWQ';
+const spreadsheetId = process.env.GOOGLE_SHEET_ID?.trim() || defaultSpreadsheetId;
+const sheetsReader = new PublicGoogleSheetsValuesReader();
+const day1SheetNames = [
+  '1日目-東123',
+  '1日目-東7',
+  '1日目-西12',
+  '1日目-南12',
+] as const;
+const day2SheetNames = [
+  '2日目-東123',
+  '2日目-東7',
+  '2日目-西12',
+  '2日目-南12',
+] as const;
+const listCommands = new Map<string, readonly string[]>([
+  ['!list', [...day1SheetNames, ...day2SheetNames]],
+  ['!list1', day1SheetNames],
+  ['!list2', day2SheetNames],
+]);
 
 const client = new Client({
   intents: [
@@ -94,7 +113,6 @@ function getCircleState(
 
   const created: MutableCircleState = {
     purchaserIds: [],
-    exceptions: new Map(),
   };
   published.states.set(circleKey, created);
   return created;
@@ -110,7 +128,7 @@ async function refreshPublishedMessage(
 }
 
 async function syncPurchaseReaction(
-  reaction: MessageReaction,
+  reaction: MessageReaction | PartialMessageReaction,
   user: User | PartialUser,
 ): Promise<void> {
   if (user.bot) return;
@@ -135,53 +153,49 @@ async function syncPurchaseReaction(
   await refreshPublishedMessage(published);
 }
 
-function textInputRow(
-  input: TextInputBuilder,
-): ActionRowBuilder<TextInputBuilder> {
-  return new ActionRowBuilder<TextInputBuilder>().addComponents(input);
-}
+function buildExceptionModal(
+  messageId: string,
+  page: PurchaseCandidatePage,
+): ModalBuilder {
+  const fieldSelect = new StringSelectMenuBuilder()
+    .setCustomId('field-number')
+    .setPlaceholder('対象を選択')
+    .setRequired(true)
+    .addOptions(
+      page.circles.map((circle, index) => ({
+        label: `${index + 1}. ${circle.location} - ${circle.circleName}`.slice(0, 100),
+        value: String(index + 1),
+      })),
+    );
 
-function buildExceptionModal(messageId: string): ModalBuilder {
+  const typeSelect = new StringSelectMenuBuilder()
+    .setCustomId('exception-type')
+    .setPlaceholder('種別を選択')
+    .setRequired(true)
+    .addOptions(
+      { label: '売り切れ', value: '売り切れ' },
+      { label: '限数不足', value: '限数不足' },
+      { label: 'その他', value: 'その他' },
+    );
+
   return new ModalBuilder()
     .setCustomId(`${exceptionModalPrefix}${messageId}`)
     .setTitle('購入例外の入力')
-    .addComponents(
-      textInputRow(
-        new TextInputBuilder()
-          .setCustomId('field-number')
-          .setLabel('Field番号（1〜10）')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true),
-      ),
-      textInputRow(
-        new TextInputBuilder()
-          .setCustomId('product-number')
-          .setLabel('商品番号（商品が1件なら1）')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true)
-          .setValue('1'),
-      ),
-      textInputRow(
-        new TextInputBuilder()
-          .setCustomId('exception-type')
-          .setLabel('種別（引継ぎ・売切れ・複数購入・削除など）')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true),
-      ),
-      textInputRow(
-        new TextInputBuilder()
-          .setCustomId('quantity')
-          .setLabel('例外数量（任意）')
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false),
-      ),
-      textInputRow(
-        new TextInputBuilder()
-          .setCustomId('memo')
-          .setLabel('備考（任意）')
-          .setStyle(TextInputStyle.Paragraph)
-          .setRequired(false),
-      ),
+    .addLabelComponents(
+      new LabelBuilder()
+        .setLabel('対象Field')
+        .setStringSelectMenuComponent(fieldSelect),
+      new LabelBuilder()
+        .setLabel('種別')
+        .setStringSelectMenuComponent(typeSelect),
+      new LabelBuilder()
+        .setLabel('備考（任意）')
+        .setTextInputComponent(
+          new TextInputBuilder()
+            .setCustomId('memo')
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(false),
+        ),
     );
 }
 
@@ -192,27 +206,34 @@ client.once('ready', () => {
 
 client.on('messageCreate', async (message: Message) => {
   if (message.author.bot) return;
-  if (message.content !== '!list') return;
+  const sheetNames = listCommands.get(message.content.trim());
+  if (!sheetNames) return;
   if (!message.channel.isSendable()) return;
 
   try {
-    const items = await purchaseCandidateSource.load();
-    const pages = buildPurchaseCandidatePages(items, purchaseListTitle);
+    for (const sheetName of sheetNames) {
+      const source = new GoogleSheetsPurchaseCandidateSource(
+        { spreadsheetId, sheetName },
+        sheetsReader,
+      );
+      const items = (await source.load()).filter((item) => item.selected);
+      const pages = buildPurchaseCandidatePages(items, sheetName);
 
-    for (const page of pages) {
-      const states = new Map<string, MutableCircleState>();
-      const sentMessage = await message.channel.send({
-        embeds: [renderPurchaseCandidatePage(page, states)],
-        components: [buildExceptionButton()],
-      });
-      publishedMessages.set(sentMessage.id, {
-        message: sentMessage,
-        page,
-        states,
-      });
+      for (const page of pages) {
+        const states = new Map<string, MutableCircleState>();
+        const sentMessage = await message.channel.send({
+          embeds: [renderPurchaseCandidatePage(page, states)],
+          components: [buildExceptionButton()],
+        });
+        publishedMessages.set(sentMessage.id, {
+          message: sentMessage,
+          page,
+          states,
+        });
 
-      for (const emoji of numberEmojis.slice(0, page.circles.length)) {
-        await sentMessage.react(emoji);
+        for (const emoji of numberEmojis.slice(0, page.circles.length)) {
+          await sentMessage.react(emoji);
+        }
       }
     }
   } catch (error) {
@@ -247,7 +268,11 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
 
-      await interaction.showModal(buildExceptionModal(interaction.message.id));
+      const published = publishedMessages.get(interaction.message.id);
+      if (!published) return;
+      await interaction.showModal(
+        buildExceptionModal(interaction.message.id, published.page),
+      );
       return;
     }
 
@@ -267,49 +292,30 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     const fieldNumber = Number(
-      interaction.fields.getTextInputValue('field-number'),
-    );
-    const productNumber = Number(
-      interaction.fields.getTextInputValue('product-number'),
+      interaction.fields.getStringSelectValues('field-number')[0],
     );
     const circle = published.page.circles[fieldNumber - 1];
-    const item = circle?.items[productNumber - 1];
-    if (!Number.isInteger(fieldNumber) || !Number.isInteger(productNumber) || !circle || !item) {
+    if (!Number.isInteger(fieldNumber) || !circle) {
       await interaction.reply({
-        content: 'Field番号または商品番号が正しくありません。',
+        content: 'Field番号が正しくありません。',
         flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
-    const type = interaction.fields.getTextInputValue('exception-type').trim();
-    const quantityText = interaction.fields.getTextInputValue('quantity').trim();
-    const quantity = quantityText === '' ? undefined : Number(quantityText);
-    if (quantity !== undefined && (!Number.isInteger(quantity) || quantity < 1)) {
-      await interaction.reply({
-        content: '例外数量は1以上の整数で入力してください。',
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
+    const type = interaction.fields.getStringSelectValues('exception-type')[0];
+    if (!type) return;
 
     const state = getCircleState(published, circle.key);
-    if (type === '削除') {
-      state.exceptions.delete(item.id);
-    } else {
-      state.exceptions.set(item.id, {
-        type,
-        quantity,
-        memo: interaction.fields.getTextInputValue('memo').trim() || undefined,
-        updatedBy: interaction.user.id,
-      });
-    }
+    state.exception = {
+      type,
+      memo: interaction.fields.getTextInputValue('memo').trim() || undefined,
+      updatedBy: interaction.user.id,
+    };
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     await refreshPublishedMessage(published);
-    await interaction.editReply(
-      type === '削除' ? '備考を削除しました。' : '備考を反映しました。',
-    );
+    await interaction.editReply('備考を反映しました。');
   } catch (error) {
     console.error('例外入力の反映に失敗しました:', error);
     if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {

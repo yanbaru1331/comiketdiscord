@@ -5,7 +5,7 @@ import type {
 } from '../domain/purchase-candidate.js';
 import { mapPurchaseCandidateTable } from './purchase-candidate-table.js';
 
-function parseCsv(text: string): string[][] {
+export function parseCsv(text: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let field = '';

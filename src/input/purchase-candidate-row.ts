@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import type { PurchaseCandidate } from '../domain/purchase-candidate.js';
 
 export type PurchaseCandidateRow = Record<string, string | undefined>;
@@ -30,7 +31,7 @@ function requiredText(value: string | undefined, columnName: string): string {
 }
 
 export function mapPurchaseCandidateRow(row: PurchaseCandidateRow): PurchaseCandidate {
-  const id = requiredText(row.ID, 'ID').toLowerCase();
+  const id = (optionalText(row.ID) ?? randomBytes(8).toString('hex')).toLowerCase();
   if (!ITEM_ID_PATTERN.test(id)) {
     throw new Error(`ID must be a 16-digit hexadecimal string: ${id}`);
   }
@@ -42,7 +43,9 @@ export function mapPurchaseCandidateRow(row: PurchaseCandidateRow): PurchaseCand
 
   return {
     id,
-    selected: (row['購入対象'] ?? row.FALSE)?.trim().toUpperCase() === 'TRUE',
+    selected: ['TRUE', '✔', '✓', '☑'].includes(
+      (row['購入対象'] ?? row.FALSE ?? '').trim().toUpperCase(),
+    ),
     priority: optionalText(row['優先度']),
     location: requiredText(row['場所'], '場所'),
     circleName: optionalText(row['サークル名']),
@@ -50,6 +53,7 @@ export function mapPurchaseCandidateRow(row: PurchaseCandidateRow): PurchaseCand
     unitPrice: parseOptionalNumber(row['金額/冊'], '金額/冊'),
     quantity,
     totalPrice: parseOptionalNumber(row['合計金額'], '合計金額'),
+    requester: optionalText(row['希望者']),
     memo1: optionalText(row['メモ-1']),
     memo2: optionalText(row['メモ-2']),
     url: optionalText(row.URL),

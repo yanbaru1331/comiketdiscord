@@ -29,7 +29,13 @@ docker compose -f compose.dev.yaml up --build
 `src` はコンテナへマウントされ、変更時に `npm run dev` (`tsx watch`) が自動で再起動します。
 依存関係を更新した場合は、再度 `--build` を付けて起動してください。
 
-現在のエントリーポイントは設定値を検証して待機するだけで、Discord や Google Sheets には接続しません。
+Botは公開設定されたGoogle Sheetsを読み取り、Discordへ購入候補を表示します。
+
+```text
+!list   1日目・2日目の全8タブ
+!list1  1日目の4タブ
+!list2  2日目の4タブ
+```
 
 ## 購入候補CSVの確認
 
@@ -53,4 +59,4 @@ Google Sheetsのセル結合をCSV化した行を扱えるよう、場所とサ�
 ruby scripts/add_csv_ids.rb test.csv
 ```
 
-CSVとGoogle Sheetsは、どちらも表形式データを共通変換関数へ渡し、`PurchaseCandidate[]`として取得します。Google Sheetsでは `GoogleSheetsValuesReader` にAPI取得処理を実装し、スプレッドシートIDと `C107-2-東` のようなシート名を指定します。認証と実際のAPI通信はまだ実装していません。
+CSVとGoogle Sheetsは、どちらも表形式データを共通変換関数へ渡し、`PurchaseCandidate[]`として取得します。現在のGoogle Sheetsは「リンクを知っている全員が閲覧可能」の設定を前提に、認証情報なしの読み取り専用URLから取得します。`GOOGLE_SHEET_ID`が空の場合は現在の`c108BOT`を使用します。

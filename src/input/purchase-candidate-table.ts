@@ -16,12 +16,33 @@ export function mapPurchaseCandidateTable(
   table: PurchaseCandidateTable,
   sourceName: string,
 ): PurchaseCandidate[] {
-  const [headerCells, ...dataRows] = table;
-  if (!headerCells) throw new Error(`${sourceName}: header row is missing`);
+  const headerRowIndex = table.findIndex((cells) => {
+    const values = cells.map((cell) => cellToString(cell).trim());
+    return ['優先度', '場所', 'サークル名', '買うもの'].every((header) =>
+      values.includes(header),
+    );
+  });
+  if (headerRowIndex < 0) throw new Error(`${sourceName}: header row is missing`);
 
-  const headers = headerCells.map((cell, index) => {
+  const headerCells = table[headerRowIndex];
+  if (!headerCells) throw new Error(`${sourceName}: header row is missing`);
+  let lastNamedColumn = -1;
+  headerCells.forEach((cell, index) => {
+    if (cellToString(cell).trim() !== '') lastNamedColumn = index;
+  });
+  const relevantColumnCount = Math.max(lastNamedColumn + 1, 11);
+  const dataRows = table.slice(headerRowIndex + 1);
+
+  const headers = headerCells.slice(0, relevantColumnCount).map((cell, index) => {
     const header = cellToString(cell).trim();
-    return index === 0 ? header.replace(/^\uFEFF/, '') : header;
+    const normalized = index === 0 ? header.replace(/^\uFEFF/, '') : header;
+    if (index === 0 && ['', 'FALSE', '✗', 'チェック'].includes(normalized)) {
+      return '購入対象';
+    }
+    if (index === 5 && normalized === '') return '金額/冊';
+    if (index === 6 && normalized === '') return '冊数';
+    if (index === 7 && normalized === '') return '合計金額';
+    return normalized;
   });
 
   if (headers.some((header) => header === '')) {
@@ -34,40 +55,38 @@ export function mapPurchaseCandidateTable(
   let previousLocation: string | undefined;
   let previousCircleName: string | undefined;
 
-  return dataRows
-    .filter((cells) => cells.some((cell) => cellToString(cell).trim() !== ''))
-    .map((cells, index) => {
-      const rowNumber = index + 2;
-      if (cells.length > headers.length) {
-        throw new Error(
-          `${sourceName}:${rowNumber}: expected at most ${headers.length} columns, got ${cells.length}`,
-        );
-      }
+  const candidates: PurchaseCandidate[] = [];
+  dataRows.forEach((cells, index) => {
+    const rowNumber = headerRowIndex + index + 2;
+    const row: PurchaseCandidateRow = Object.fromEntries(
+      headers.map((header, column) => [header, cellToString(cells[column])]),
+    );
 
-      const row: PurchaseCandidateRow = Object.fromEntries(
-        headers.map((header, column) => [header, cellToString(cells[column])]),
-      );
+    // The sheet has pre-filled checkbox/priority rows. They are not items yet.
+    if (!row['買うもの']?.trim()) return;
 
-      const explicitLocation = row['場所']?.trim();
-      if (explicitLocation) {
-        if (explicitLocation !== previousLocation) previousCircleName = undefined;
-        previousLocation = explicitLocation;
-      } else if (previousLocation) {
-        row['場所'] = previousLocation;
-      }
+    const explicitLocation = row['場所']?.trim();
+    if (explicitLocation) {
+      if (explicitLocation !== previousLocation) previousCircleName = undefined;
+      previousLocation = explicitLocation;
+    } else if (previousLocation) {
+      row['場所'] = previousLocation;
+    }
 
-      const explicitCircleName = row['サークル名']?.trim();
-      if (explicitCircleName) {
-        previousCircleName = explicitCircleName;
-      } else if (previousCircleName) {
-        row['サークル名'] = previousCircleName;
-      }
+    const explicitCircleName = row['サークル名']?.trim();
+    if (explicitCircleName) {
+      previousCircleName = explicitCircleName;
+    } else if (previousCircleName) {
+      row['サークル名'] = previousCircleName;
+    }
 
-      try {
-        return mapPurchaseCandidateRow(row);
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        throw new Error(`${sourceName}:${rowNumber}: ${reason}`);
-      }
-    });
+    try {
+      candidates.push(mapPurchaseCandidateRow(row));
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(`${sourceName}:${rowNumber}: ${reason}`);
+    }
+  });
+
+  return candidates;
 }
