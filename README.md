@@ -29,6 +29,13 @@ docker compose -f compose.dev.yaml up --build
 `src` はコンテナへマウントされ、変更時に `npm run dev` (`tsx watch`) が自動で再起動します。
 依存関係を更新した場合は、再度 `--build` を付けて起動してください。
 
+型チェックと、Discordへ接続しないInteractionエラーテストは次のコマンドで実行できます。
+
+```sh
+pnpm run check
+pnpm test
+```
+
 Botは公開設定されたGoogle Sheetsを読み取り、Discordへ購入候補を表示します。
 
 ```text

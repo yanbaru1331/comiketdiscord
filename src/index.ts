@@ -20,6 +20,10 @@ import {
 import { GoogleSheetsPurchaseCandidateSource } from './input/google-sheets-purchase-candidate-source.js';
 import { PublicGoogleSheetsValuesReader } from './input/public-google-sheets-values-reader.js';
 import {
+  runInteractionSafely,
+} from './interactions/interaction-error-boundary.js';
+import { applyExceptionWithRollback } from './interactions/purchase-exception-state.js';
+import {
   buildPurchaseCandidatePages,
   type PurchaseCandidatePage,
   type PurchaseCircleDisplayState,
@@ -221,6 +225,10 @@ client.once('clientReady', () => {
   if (client.user) console.log(client.user.tag);
 });
 
+client.on('error', (error) => {
+  console.error('Discord client error:', error);
+});
+
 client.on('messageCreate', async (message: Message) => {
   if (message.author.bot) return;
   const targets = listCommands.get(message.content.trim());
@@ -284,7 +292,7 @@ client.on('messageReactionRemove', async (reaction, user) => {
 });
 
 client.on('interactionCreate', async (interaction) => {
-  try {
+  await runInteractionSafely(interaction, async () => {
     if (interaction.isButton() && interaction.customId === exceptionButtonId) {
       if (!publishedMessages.has(interaction.message.id)) {
         await interaction.reply({
@@ -317,40 +325,37 @@ client.on('interactionCreate', async (interaction) => {
       return;
     }
 
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
     const fieldNumber = Number(
       interaction.fields.getStringSelectValues('field-number')[0],
     );
     const circle = published.page.circles[fieldNumber - 1];
     if (!Number.isInteger(fieldNumber) || !circle) {
-      await interaction.reply({
-        content: 'Field番号が正しくありません。',
-        flags: MessageFlags.Ephemeral,
-      });
+      await interaction.editReply('Field番号が正しくありません。');
       return;
     }
 
     const type = interaction.fields.getStringSelectValues('exception-type')[0];
-    if (!type) return;
+    if (!type) {
+      await interaction.editReply('例外種別が正しくありません。');
+      return;
+    }
 
     const state = getCircleState(published, circle.key);
-    state.exception = {
+    const exception: PurchaseExceptionNote = {
       type,
       memo: interaction.fields.getTextInputValue('memo').trim() || undefined,
       updatedBy: interaction.user.id,
     };
 
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    await refreshPublishedMessage(published);
+    await applyExceptionWithRollback(
+      state,
+      exception,
+      () => refreshPublishedMessage(published),
+    );
     await interaction.editReply('備考を反映しました。');
-  } catch (error) {
-    console.error('例外入力の反映に失敗しました:', error);
-    if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
-      await interaction.reply({
-        content: '例外入力の反映に失敗しました。',
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-  }
+  });
 });
 
 client.login(process.env.DISCORD_TOKEN);
