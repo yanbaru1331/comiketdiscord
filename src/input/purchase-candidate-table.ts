@@ -18,9 +18,11 @@ export function mapPurchaseCandidateTable(
 ): PurchaseCandidate[] {
   const headerRowIndex = table.findIndex((cells) => {
     const values = cells.map((cell) => cellToString(cell).trim());
-    return ['優先度', '場所', 'サークル名', '買うもの'].every((header) =>
-      values.includes(header),
-    );
+    const hasLocationColumn = values.includes('場所') || values[2] === '';
+    return hasLocationColumn
+      && ['優先度', 'サークル名', '買うもの'].every((header) =>
+        values.includes(header),
+      );
   });
   if (headerRowIndex < 0) throw new Error(`${sourceName}: header row is missing`);
 
@@ -39,6 +41,7 @@ export function mapPurchaseCandidateTable(
     if (index === 0 && ['', 'FALSE', '✗', 'チェック'].includes(normalized)) {
       return '購入対象';
     }
+    if (index === 2 && normalized === '') return '場所';
     if (index === 5 && normalized === '') return '金額/冊';
     if (index === 6 && normalized === '') return '冊数';
     if (index === 7 && normalized === '') return '合計金額';

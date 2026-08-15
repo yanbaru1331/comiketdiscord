@@ -60,22 +60,39 @@ const publishedMessages = new Map<string, PublishedListMessage>();
 const defaultSpreadsheetId = '1Nl_CxmDBM_RYGt0x6wFJpupeN0Y1ExGFYwS0AW5GyWQ';
 const spreadsheetId = process.env.GOOGLE_SHEET_ID?.trim() || defaultSpreadsheetId;
 const sheetsReader = new PublicGoogleSheetsValuesReader();
-const day1SheetNames = [
-  '1日目-東123',
-  '1日目-東7',
-  '1日目-西12',
-  '1日目-南12',
-] as const;
-const day2SheetNames = [
-  '2日目-東123',
-  '2日目-東7',
-  '2日目-西12',
-  '2日目-南12',
-] as const;
-const listCommands = new Map<string, readonly string[]>([
-  ['!list', [...day1SheetNames, ...day2SheetNames]],
-  ['!list1', day1SheetNames],
-  ['!list2', day2SheetNames],
+const channelEnvironmentNames = {
+  east123: 'DISCORD_CHANNEL_EAST_123_ID',
+  east7: 'DISCORD_CHANNEL_EAST_7_ID',
+  west12: 'DISCORD_CHANNEL_WEST_12_ID',
+  south12: 'DISCORD_CHANNEL_SOUTH_12_ID',
+  corporate: 'DISCORD_CHANNEL_CORPORATE_ID',
+} as const;
+
+interface PurchaseListTarget {
+  sheetName: string;
+  channelEnvironmentName: string;
+}
+
+const day1Targets: readonly PurchaseListTarget[] = [
+  { sheetName: '1日目-東123', channelEnvironmentName: channelEnvironmentNames.east123 },
+  { sheetName: '1日目-東7', channelEnvironmentName: channelEnvironmentNames.east7 },
+  { sheetName: '1日目-西12', channelEnvironmentName: channelEnvironmentNames.west12 },
+  { sheetName: '1日目-南12', channelEnvironmentName: channelEnvironmentNames.south12 },
+];
+const day2Targets: readonly PurchaseListTarget[] = [
+  { sheetName: '2日目-東123', channelEnvironmentName: channelEnvironmentNames.east123 },
+  { sheetName: '2日目-東7', channelEnvironmentName: channelEnvironmentNames.east7 },
+  { sheetName: '2日目-西12', channelEnvironmentName: channelEnvironmentNames.west12 },
+  { sheetName: '2日目-南12', channelEnvironmentName: channelEnvironmentNames.south12 },
+];
+const corporateTargets: readonly PurchaseListTarget[] = [
+  { sheetName: '企業', channelEnvironmentName: channelEnvironmentNames.corporate },
+];
+const listCommands = new Map<string, readonly PurchaseListTarget[]>([
+  ['!list', [...day1Targets, ...day2Targets]],
+  ['!list1', day1Targets],
+  ['!list2', day2Targets],
+  ['!list企業', corporateTargets],
 ]);
 
 const client = new Client({
@@ -180,13 +197,13 @@ function buildExceptionModal(
 
   return new ModalBuilder()
     .setCustomId(`${exceptionModalPrefix}${messageId}`)
-    .setTitle('購入例外の入力')
+    .setTitle('報連相フォーム')
     .addLabelComponents(
       new LabelBuilder()
-        .setLabel('対象Field')
+        .setLabel('サークル')
         .setStringSelectMenuComponent(fieldSelect),
       new LabelBuilder()
-        .setLabel('種別')
+        .setLabel('どうした？')
         .setStringSelectMenuComponent(typeSelect),
       new LabelBuilder()
         .setLabel('備考（任意）')
@@ -199,29 +216,38 @@ function buildExceptionModal(
     );
 }
 
-client.once('ready', () => {
+client.once('clientReady', () => {
   console.log('Ready!');
   if (client.user) console.log(client.user.tag);
 });
 
 client.on('messageCreate', async (message: Message) => {
   if (message.author.bot) return;
-  const sheetNames = listCommands.get(message.content.trim());
-  if (!sheetNames) return;
-  if (!message.channel.isSendable()) return;
+  const targets = listCommands.get(message.content.trim());
+  if (!targets) return;
 
   try {
-    for (const sheetName of sheetNames) {
+    for (const target of targets) {
+      const channelId = process.env[target.channelEnvironmentName]?.trim();
+      if (!channelId) {
+        throw new Error(`${target.channelEnvironmentName} is not configured`);
+      }
+
+      const destinationChannel = await client.channels.fetch(channelId);
+      if (!destinationChannel?.isSendable()) {
+        throw new Error(`${target.channelEnvironmentName} is not a sendable channel`);
+      }
+
       const source = new GoogleSheetsPurchaseCandidateSource(
-        { spreadsheetId, sheetName },
+        { spreadsheetId, sheetName: target.sheetName },
         sheetsReader,
       );
-      const items = (await source.load()).filter((item) => item.selected);
-      const pages = buildPurchaseCandidatePages(items, sheetName);
+      const items = await source.load();
+      const pages = buildPurchaseCandidatePages(items, target.sheetName);
 
       for (const page of pages) {
         const states = new Map<string, MutableCircleState>();
-        const sentMessage = await message.channel.send({
+        const sentMessage = await destinationChannel.send({
           embeds: [renderPurchaseCandidatePage(page, states)],
           components: [buildExceptionButton()],
         });

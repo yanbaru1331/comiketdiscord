@@ -35,7 +35,20 @@ Botは公開設定されたGoogle Sheetsを読み取り、Discordへ購入候補
 !list   1日目・2日目の全8タブ
 !list1  1日目の4タブ
 !list2  2日目の4タブ
+!list企業  企業タブ
 ```
+
+各タブのEmbedは、コマンドを入力したチャンネルではなく、会場ごとに指定したチャンネルへ送信されます。`.env`へ送信先チャンネルIDを設定してください。
+
+```dotenv
+DISCORD_CHANNEL_EAST_123_ID=
+DISCORD_CHANNEL_EAST_7_ID=
+DISCORD_CHANNEL_WEST_12_ID=
+DISCORD_CHANNEL_SOUTH_12_ID=
+DISCORD_CHANNEL_CORPORATE_ID=
+```
+
+`!list1`と`!list2`は東123・東7・西12・南12へ振り分け、`!list企業`は企業チャンネルへ送信します。Botには各チャンネルの「チャンネルを見る」「メッセージを送信」「埋め込みリンク」「リアクションの追加」権限が必要です。
 
 ## 購入候補CSVの確認
 

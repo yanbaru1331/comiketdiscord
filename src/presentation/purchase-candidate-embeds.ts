@@ -95,12 +95,9 @@ function renderCircleValue(
   const links = urls.map((url, index) =>
     hyperlink(urls.length === 1 ? '詳細を開く' : `詳細を開く (${index + 1})`, url),
   );
-  const purchasers = state?.purchaserIds.length
-    ? [`購入数: ${state.purchaserIds.length}`]
-    : [];
   const exception = state?.exception ? [renderException(state.exception)] : [];
 
-  return [...products, ...exception, ...purchasers, ...links].join('\n');
+  return [...products, ...exception, ...links].join('\n');
 }
 
 export function buildPurchaseCandidatePages(
